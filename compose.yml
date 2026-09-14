@@ -1,0 +1,13 @@
+services:
+  board-api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      BOARD_DB: /app/data/board.db
+    volumes:
+      - board-data:/app/data
+
+volumes:
+  board-data:
