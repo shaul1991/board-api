@@ -32,7 +32,7 @@ uvicorn app.main:app --port 8000
 
 - API: http://127.0.0.1:8000
 - Interactive docs: http://127.0.0.1:8000/docs
-- Data persists in `board.db` (SQLite, created next to `app/` on first boot).
+- Data persists in `board.db` (SQLite, created in the server's working directory — the repo root with the Run command above — on first boot).
 
 ## Docker (local test environment)
 
@@ -103,7 +103,9 @@ bash scripts/smoke.sh
 
 Boots its own uvicorn on port 8000 (port must be free) — or, if a server is
 already listening there, checks against it (see the Docker section for the
-`SMOKE_RESTART_CMD` restart hook). Over real HTTP with `curl` + `jq`, checks:
+`SMOKE_RESTART_CMD` restart hook). When it boots its own server, `BOARD_DB`
+points at a temporary directory (removed on exit), so the developer's
+`board.db` is never touched. Over real HTTP with `curl` + `jq`, checks:
 
 - story 1: create → 201 with id, `created_at == updated_at`
 - story 2: read → 200 after a server restart (persistence)

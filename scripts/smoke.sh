@@ -16,6 +16,7 @@ BASE="http://127.0.0.1:8000"
 RESP="$(mktemp)"
 SERVER_LOG="$(mktemp)"
 SERVER_PID=""
+BOARD_DB_DIR=""
 STATUS=""
 BODY=""
 
@@ -23,6 +24,9 @@ cleanup() {
   if [ -n "${SERVER_PID}" ] && kill -0 "${SERVER_PID}" 2>/dev/null; then
     kill "${SERVER_PID}" 2>/dev/null || true
     wait "${SERVER_PID}" 2>/dev/null || true
+  fi
+  if [ -n "${BOARD_DB_DIR}" ]; then
+    rm -rf "${BOARD_DB_DIR}"
   fi
   rm -f "${RESP}" "${SERVER_LOG}"
 }
@@ -43,8 +47,8 @@ req() {
 }
 
 start_server() {
-  printf 'starting uvicorn (app.main:app, port 8000)...\n'
-  "${PYTHON}" -m uvicorn app.main:app --port 8000 >"${SERVER_LOG}" 2>&1 &
+  printf 'starting uvicorn (app.main:app, port 8000, BOARD_DB=%s)...\n' "${BOARD_DB_DIR}/board.db"
+  BOARD_DB="${BOARD_DB_DIR}/board.db" "${PYTHON}" -m uvicorn app.main:app --port 8000 >"${SERVER_LOG}" 2>&1 &
   SERVER_PID=$!
   for _ in $(seq 1 50); do
     if curl -sf "${BASE}/docs" >/dev/null 2>&1; then
@@ -71,6 +75,7 @@ if curl -sf "${BASE}/docs" >/dev/null 2>&1; then
   printf 'using already-running server at %s\n' "${BASE}"
 else
   MANAGED=1
+  BOARD_DB_DIR="$(mktemp -d)"
   start_server
 fi
 

@@ -94,6 +94,43 @@ def test_pagination_bounds(client):
     assert client.get("/posts", params={"page": 0}).status_code == 422
 
 
+def test_pagination_overflow_page_422(client):
+    assert (
+        client.get("/posts", params={"page": 99999999999999999999999}).status_code
+        == 422
+    )
+
+
+def test_list_defaults_and_empty(client):
+    resp = client.get("/posts")
+    assert resp.status_code == 200
+    assert resp.json() == {"items": [], "total": 0, "page": 1, "size": 20}
+
+
+def test_create_missing_title_422(client):
+    assert client.post("/posts", json={"body": "b"}).status_code == 422
+
+
+def test_title_201_chars_422(client):
+    payload = {"title": "x" * 201, "body": "b"}
+    assert client.post("/posts", json=payload).status_code == 422
+
+
+def test_body_10001_chars_422(client):
+    payload = {"title": "t", "body": "x" * 10001}
+    assert client.post("/posts", json=payload).status_code == 422
+
+
+def test_oversized_body_413(client):
+    resp = client.post(
+        "/posts",
+        content=b"x" * (1024 * 1024 + 1),
+        headers={"Content-Type": "application/json"},
+    )
+    assert resp.status_code == 413
+    assert resp.json() == {"detail": "request body too large"}
+
+
 @pytest.mark.parametrize(
     "payload",
     [

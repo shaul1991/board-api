@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 DATABASE = os.environ.get("BOARD_DB", "board.db")
+MAX_BODY_BYTES = 1024 * 1024  # 1 MiB request body cap
 
 
 def connect() -> sqlite3.Connection:
@@ -62,7 +63,35 @@ async def lifespan(app: FastAPI):
     yield
 
 
+class BodySizeLimitMiddleware:
+    """Pure-ASGI middleware: 413 once received http.request bytes pass the cap."""
+
+    def __init__(self, app, max_bytes: int = MAX_BODY_BYTES):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    raise HTTPException(
+                        status_code=413, detail="request body too large"
+                    )
+            return message
+
+        await self.app(scope, limited_receive, send)
+
+
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_BODY_BYTES)
 
 SELECT_COLUMNS = "id, title, body, created_at, updated_at"
 
@@ -83,7 +112,7 @@ def create_post(payload: PostIn) -> Post:
 
 @app.get("/posts", response_model=PostList)
 def list_posts(
-    page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100)
+    page: int = Query(1, ge=1, le=1000000), size: int = Query(20, ge=1, le=100)
 ) -> PostList:
     with closing(connect()) as conn:
         total = conn.execute("SELECT COUNT(*) AS n FROM posts").fetchone()["n"]
