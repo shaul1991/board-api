@@ -34,6 +34,27 @@ uvicorn app.main:app --port 8000
 - Interactive docs: http://127.0.0.1:8000/docs
 - Data persists in `board.db` (SQLite, created next to `app/` on first boot).
 
+## Docker (local test environment)
+
+```bash
+docker compose up --build
+```
+
+Builds the image and serves the API on http://127.0.0.1:8000 (port 8000:8000).
+`board.db` lives on the named volume `board-data` (mounted at `/app/data` via
+`BOARD_DB`), so posts survive container restarts; `docker compose down`
+keeps the volume.
+
+Smoke against the compose service:
+
+```bash
+SMOKE_RESTART_CMD="docker compose restart board-api" bash scripts/smoke.sh
+```
+
+`scripts/smoke.sh` reuses any server already listening on port 8000; with
+`SMOKE_RESTART_CMD` it restarts the compose service mid-run so the restart
+persistence check stays real.
+
 ## Endpoints
 
 | Method | Path | Description | Success | Errors |
@@ -46,6 +67,10 @@ uvicorn app.main:app --port 8000
 
 - `title`: 1–200 chars, required. `body`: 1–10000 chars, required.
 - Timestamps are UTC ISO-8601 strings; on create `created_at == updated_at`.
+
+Wire contract models (named and visible in the OpenAPI schema at `/docs`):
+`PostIn` (create/update request body), `Post` (single post response),
+`PostList` (list response).
 
 ## curl examples
 
@@ -76,8 +101,9 @@ curl -s -o /dev/null -w '%{http_code}\n' -X DELETE http://127.0.0.1:8000/posts/1
 bash scripts/smoke.sh
 ```
 
-Boots its own uvicorn on port 8000 (port must be free) and, over real HTTP
-with `curl` + `jq`, checks:
+Boots its own uvicorn on port 8000 (port must be free) — or, if a server is
+already listening there, checks against it (see the Docker section for the
+`SMOKE_RESTART_CMD` restart hook). Over real HTTP with `curl` + `jq`, checks:
 
 - story 1: create → 201 with id, `created_at == updated_at`
 - story 2: read → 200 after a server restart (persistence)

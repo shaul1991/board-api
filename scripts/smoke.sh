@@ -65,8 +65,16 @@ stop_server() {
   SERVER_PID=""
 }
 
+# Use an already-running server on :8000 if present; otherwise boot our own.
+if curl -sf "${BASE}/docs" >/dev/null 2>&1; then
+  MANAGED=0
+  printf 'using already-running server at %s\n' "${BASE}"
+else
+  MANAGED=1
+  start_server
+fi
+
 # ---- Story 1: create --------------------------------------------------------
-start_server
 
 req POST /posts '{"title":"smoke title","body":"smoke body"}'
 [ "${STATUS}" = "201" ] || fail "story 1 create: expected 201, got ${STATUS} body=${BODY}"
@@ -77,15 +85,32 @@ printf '%s' "${BODY}" | jq -e '.title == "smoke title" and .body == "smoke body"
 pass "story 1 create -> 201 (id=${POST_ID}, title/body echoed, created_at==updated_at)"
 
 # ---- Persistence: restart, then story 2 read --------------------------------
-stop_server
-start_server
+RESTARTED=0
+if [ "${MANAGED}" = "1" ]; then
+  stop_server
+  start_server
+  RESTARTED=1
+elif [ -n "${SMOKE_RESTART_CMD:-}" ]; then
+  printf 'restarting via: %s\n' "${SMOKE_RESTART_CMD}"
+  ${SMOKE_RESTART_CMD}
+  for _ in $(seq 1 50); do
+    if curl -sf "${BASE}/docs" >/dev/null 2>&1; then break; fi
+    sleep 0.2
+  done
+  curl -sf "${BASE}/docs" >/dev/null 2>&1 || fail "server did not come back after restart"
+  RESTARTED=1
+fi
 
 req GET "/posts/${POST_ID}"
 [ "${STATUS}" = "200" ] || fail "story 2 read: expected 200, got ${STATUS} body=${BODY}"
 printf '%s' "${BODY}" | jq -e --argjson id "${POST_ID}" \
   '.id == $id and .title == "smoke title" and .body == "smoke body" and .created_at == .updated_at' >/dev/null \
   || fail "story 2 read: unexpected body ${BODY}"
-pass "story 2 read -> 200 after server restart (persistence ok, id=${POST_ID})"
+if [ "${RESTARTED}" = "1" ]; then
+  pass "story 2 read -> 200 after server restart (persistence ok, id=${POST_ID})"
+else
+  pass "story 2 read -> 200 (persistence restart skipped, id=${POST_ID})"
+fi
 
 # ---- Story 3: list with paging ----------------------------------------------
 req POST /posts '{"title":"page post 1","body":"p1 body"}'

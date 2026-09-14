@@ -1,5 +1,6 @@
 """Board posts API (HIST-288 L3) — single-module FastAPI app backed by SQLite."""
 
+import os
 import sqlite3
 from contextlib import asynccontextmanager, closing
 from datetime import datetime, timezone
@@ -7,7 +8,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
-DATABASE = "board.db"
+DATABASE = os.environ.get("BOARD_DB", "board.db")
 
 
 def connect() -> sqlite3.Connection:
@@ -48,6 +49,13 @@ class Post(PostIn):
     updated_at: str
 
 
+class PostList(BaseModel):
+    items: list[Post]
+    total: int
+    page: int
+    size: int
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
@@ -60,7 +68,7 @@ SELECT_COLUMNS = "id, title, body, created_at, updated_at"
 
 
 @app.post("/posts", status_code=201, response_model=Post)
-def create_post(payload: PostIn) -> dict:
+def create_post(payload: PostIn) -> Post:
     ts = now()
     with closing(connect()) as conn:
         cur = conn.execute(
@@ -70,40 +78,37 @@ def create_post(payload: PostIn) -> dict:
         row = conn.execute(
             f"SELECT {SELECT_COLUMNS} FROM posts WHERE id = ?", (cur.lastrowid,)
         ).fetchone()
-    return dict(row)
+    return Post(**dict(row))
 
 
-@app.get("/posts")
+@app.get("/posts", response_model=PostList)
 def list_posts(
     page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100)
-) -> dict:
+) -> PostList:
     with closing(connect()) as conn:
         total = conn.execute("SELECT COUNT(*) AS n FROM posts").fetchone()["n"]
         rows = conn.execute(
             f"SELECT {SELECT_COLUMNS} FROM posts ORDER BY id DESC LIMIT ? OFFSET ?",
             (size, (page - 1) * size),
         ).fetchall()
-    return {
-        "items": [dict(row) for row in rows],
-        "total": total,
-        "page": page,
-        "size": size,
-    }
+    return PostList(
+        items=[dict(row) for row in rows], total=total, page=page, size=size
+    )
 
 
 @app.get("/posts/{post_id}", response_model=Post)
-def get_post(post_id: int) -> dict:
+def get_post(post_id: int) -> Post:
     with closing(connect()) as conn:
         row = conn.execute(
             f"SELECT {SELECT_COLUMNS} FROM posts WHERE id = ?", (post_id,)
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="post not found")
-    return dict(row)
+    return Post(**dict(row))
 
 
 @app.put("/posts/{post_id}", response_model=Post)
-def update_post(post_id: int, payload: PostIn) -> dict:
+def update_post(post_id: int, payload: PostIn) -> Post:
     ts = now()
     with closing(connect()) as conn:
         row = conn.execute(
@@ -118,7 +123,7 @@ def update_post(post_id: int, payload: PostIn) -> dict:
         row = conn.execute(
             f"SELECT {SELECT_COLUMNS} FROM posts WHERE id = ?", (post_id,)
         ).fetchone()
-    return dict(row)
+    return Post(**dict(row))
 
 
 @app.delete("/posts/{post_id}", status_code=204)
